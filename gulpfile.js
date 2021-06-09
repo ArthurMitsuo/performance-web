@@ -1,105 +1,94 @@
 /*
-
     Gulpfile de exemplo para algumas ações clássicas de otimização.
-    
     Para aprender mais sobre Gulp, veja o Curso Online de Gulp do Alura:
-
-        https://www.alura.com.br/curso-online-gulp
-
+    https://www.alura.com.br/curso-online-gulp
  */
 
+const { src, dest, series, parallel } = require('gulp');
+const gulpClean = require('gulp-clean');
+const uglify = require('gulp-uglify');
+const cssNano = require('gulp-cssnano');
+const htmlMin = require('gulp-htmlmin');
+const useRef = require('gulp-useref');
+const inlineSource = require('gulp-inline-source');
+const iIf = require('gulp-if');
+const imageMin = require('gulp-imagemin');
+const rev = require('gulp-rev');
+const revDel = require('gulp-rev-delete-original');
+const revReplace = require('gulp-rev-replace');
 
-var gulp = require('gulp');
-var $ = require('gulp-load-plugins')({rename: {'gulp-rev-delete-original':'revdel', 'gulp-if': 'if'}});
+function clean() {
+    return src('dist/', { read: false, allowEmpty: true })
+        .pipe(gulpClean());
+}
 
+function copy() {
+    return src(['site/assets/{img,font}/**/*', 'site/app.yaml'], { base: 'site' })
+        .pipe(dest('dist/'));
+}
 
+function minifyJS() {
+    return src('site/**/*.js')
+        .pipe(uglify())
+        .pipe(dest('dist/'))
+}
 
-/* Tasks base */
-gulp.task('copy', function() {
-    return gulp.src(['site/assets/{img,font}/**/*', 'site/app.yaml'], {base: 'site'})
-        .pipe(gulp.dest('dist'));
-});
+function minifyCSS() {
+    return src('site/**/*.css')
+        .pipe(cssNano({ safe: true }))
+        .pipe(dest('dist/'))
+}
 
-gulp.task('clean', function() {
-    return gulp.src('dist/', {read: false})
-        .pipe($.clean());
-});
+function minifyHTML() {
+    return src('site/**/*.html')
+        .pipe(htmlMin({ collapseWhitespace: true }))
+        .pipe(dest('dist/'))
+}
 
-
-
-/* Minificação */
-gulp.task('minify-js', function() {
-  return gulp.src('site/**/*.js')
-    .pipe($.uglify())
-    .pipe(gulp.dest('dist/'))
-});
-
-gulp.task('minify-css', function() {
-  return gulp.src('site/**/*.css')
-    .pipe($.cssnano({safe: true}))
-    .pipe(gulp.dest('dist/'))
-});
-
-gulp.task('minify-html', function() {
-  return gulp.src('site/**/*.html')
-    .pipe($.htmlmin({collapseWhitespace: true}))
-    .pipe(gulp.dest('dist/'))
-});
-
-
-
-/* Concatenação */
-gulp.task('useref', function () {
-    return gulp.src('site/index.html')
-        .pipe($.useref())
-        .pipe($.if('*.html', $.inlineSource()))
-        .pipe($.if('*.html', $.htmlmin({collapseWhitespace: true})))
-        .pipe($.if('*.js', $.uglify()))
-        .pipe($.if('*.css', $.cssnano({safe: true})))
-        .pipe(gulp.dest('dist'));
-});
-
-
-
-/* Imagens */
-gulp.task('imagemin', function() {
-    return gulp.src('site/assets/img/*')
-        .pipe($.imagemin({
+function minifyImage() {
+    return src('site/assets/img/*')
+        .pipe(imageMin({
             progressive: true,
             svgoPlugins: [
-                {removeViewBox: false},
-                {cleanupIDs: false}
+                { removeViewBox: false },
+                { cleanupIDs: false }
             ]
         }))
-        .pipe(gulp.dest('dist/assets/img'));
-});
+        .pipe(dest('dist/assets/img'));
+}
 
+function concat() {
+    return src('site/index.html')
+        .pipe(useRef())
+        .pipe(iIf('*.html', inlineSource()))
+        .pipe(iIf('*.html', htmlMin({ collapseWhitespace: true })))
+        .pipe(iIf('*.js', uglify()))
+        .pipe(iIf('*.css', cssNano({ safe: true })))
+        .pipe(dest('dist'));
+}
 
+function revision() {
+    return src(['dist/**/*.{css,js,jpg,jpeg,png,svg}'])
+        .pipe(rev())
+        .pipe(revDel())
+        .pipe(dest('dist/'))
+        .pipe(rev.manifest())
+        .pipe(dest('dist/'))
+}
 
-/* Revisão de arquivos */
-gulp.task('rev', function(){
-  return gulp.src(['dist/**/*.{css,js,jpg,jpeg,png,svg}'])
-    .pipe($.rev())
-    .pipe($.revdel())
-    .pipe(gulp.dest('dist/'))
-    .pipe($.rev.manifest())
-    .pipe(gulp.dest('dist/'))
-})
+function revisionReplace() {
+    return src(['dist/index.html', 'dist/app.yaml', 'dist/**/*.css'])
+        .pipe(revReplace({
+            manifest: src('dist/rev-manifest.json'),
+            replaceInExtensions: ['.html', '.yaml', '.js', '.css']
+        }))
+        .pipe(dest('dist/'));
+}
 
-gulp.task('revreplace', ['rev'], function(){
-  return gulp.src(['dist/index.html', 'dist/app.yaml', 'dist/**/*.css'])
-    .pipe($.revReplace({
-        manifest: gulp.src('dist/rev-manifest.json'),
-        replaceInExtensions: ['.html', '.yaml', '.js', '.css']
-    }))
-    .pipe(gulp.dest('dist/'));
-});
+const min = parallel(minifyJS, minifyCSS, minifyHTML, minifyImage);
+const build = series(copy, min, concat, revision, revisionReplace);
+const defaultTask = series(clean, build);
 
-
-
-/* Alias */
-gulp.task('minify', ['minify-js', 'minify-css', 'minify-html']);
-gulp.task('build', $.sequence(['minify-js', 'minify-css', 'imagemin'], 'useref', 'revreplace'));
-gulp.task('default', $.sequence('clean', 'copy', 'build'));
-
-
+exports.minify = min;
+exports.build = build;
+exports.default = defaultTask;
